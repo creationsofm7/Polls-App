@@ -1,0 +1,16 @@
+# Frontend deployment configuration for Vercel
+{
+  "buildCommand": "cd frontend && pnpm build",
+  "outputDirectory": "frontend/.next",
+  "installCommand": "cd frontend && pnpm install",
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://your-backend-url.com/api/$1"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://your-backend-url.com"
+  }
+}

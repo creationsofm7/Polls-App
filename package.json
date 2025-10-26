@@ -1,0 +1,33 @@
+{
+  "name": "polls-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Polls application with FastAPI backend and Next.js frontend",
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && poetry run uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && poetry build",
+    "build:frontend": "cd frontend && pnpm build",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && poetry run pytest",
+    "test:frontend": "cd frontend && pnpm test",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && poetry run ruff check .",
+    "lint:frontend": "cd frontend && pnpm lint",
+    "format": "npm run format:backend && npm run format:frontend",
+    "format:backend": "cd backend && poetry run ruff format .",
+    "format:frontend": "cd frontend && pnpm format"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}
