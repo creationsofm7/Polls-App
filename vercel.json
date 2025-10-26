@@ -1,4 +1,3 @@
-# Frontend deployment configuration for Vercel
 {
   "buildCommand": "cd frontend && pnpm build",
   "outputDirectory": "frontend/.next",
