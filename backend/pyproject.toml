@@ -1,6 +1,6 @@
 
 [tool.poetry]
-name = "{project_name}"
+name = "polls-backend"
 version = "0.1.0"
 description = "A FastAPI project scaffold."
 authors = ["Your Name <you@example.com>"]

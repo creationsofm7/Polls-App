@@ -1,19 +1,14 @@
 [build]
-builder = "railpacks/python:3.13"
+builder = "RAILPACK"
+buildCommand = "poetry install"
+buildEnvironment = "V3"
 
 [deploy]
-startCommand = "poetry run python main.py"
-healthcheckPath = "/health"
-healthcheckTimeout = 300
-restartPolicyType = "on_failure"
-
-[env]
-PYTHON_VERSION = "3.13"
-POETRY_VENV_IN_PROJECT = "true"
-POETRY_CACHE_DIR = "/tmp/poetry_cache"
-
-# The following must be set in Railway dashboard or secrets
-# DATABASE_URL - PostgreSQL connection string
-# SECRET_KEY - JWT secret key for authentication
-# ALGORITHM - JWT algorithm (default: HS256)
-# ACCESS_TOKEN_EXPIRE_MINUTES - Token expiration time (default: 30)
+runtime = "V2"
+numReplicas = 1
+startCommand = "python main.py"
+sleepApplication = true
+useLegacyStacker = false
+multiRegionConfig = {"asia-southeast1-eqsg3a":{"numReplicas":1}}
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
