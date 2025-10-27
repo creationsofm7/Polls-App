@@ -2,6 +2,24 @@
 
 A modern, full-stack polling application that enables users to create, share, and participate in polls with real-time results and community engagement features.
 
+🌐 **Live Demo**: [https://polls-app-nu.vercel.app/](https://polls-app-nu.vercel.app/)
+
+## 🧪 Try It Out
+
+Test the real-time sync behavior with these demo accounts:
+
+| Email | Password | Purpose |
+|-------|----------|---------|
+| `user@test.com` | `123456` | Primary test account |
+| `comet@comet.com` | `123456` | Secondary account for testing sync |
+
+**How to test real-time features:**
+1. Open the app in two different browser tabs/windows
+2. Sign in with different accounts in each tab
+3. Create a poll in one tab and watch it appear instantly in the other
+4. Cast votes and see live updates across all connected clients
+5. Like/dislike polls to see real-time community engagement
+
 ![Polls Platform](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.117.1-green?style=for-the-badge&logo=fastapi)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
@@ -45,6 +63,168 @@ polls/
 ├── docker-compose.yml      # Local development setup
 └── package.json            # Monorepo management
 ```
+
+## 🚧 Challenges Faced and Solutions
+
+This section documents the key technical challenges encountered during development and the solutions implemented to address them.
+
+### 🔄 Real-time Updates with Server-Sent Events (SSE)
+
+**Challenge**: Implementing real-time poll updates without complex WebSocket infrastructure.
+
+**Solution**: Leveraged Server-Sent Events using Starlette's `EventSourceResponse` for efficient one-way communication from server to client.
+
+**Implementation**:
+- **Backend**: Custom `PollEventBus` class manages in-memory pub/sub system with asyncio queues
+- **Event Types**: `poll_created`, `poll_updated`, `poll_deleted` events broadcast to all connected clients
+- **Frontend**: Native `EventSource` API connects to `/api/polls/stream` endpoint
+- **Reference**: Inspired by [FastAPI SSE implementation guide](https://medium.com/@Rachita_B/implementing-sse-server-side-events-using-fastapi-3b2d6768249e)
+
+```python
+# Backend SSE endpoint
+@router.get("/stream")
+async def stream_poll_updates(event_bus: PollEventBus = Depends(get_poll_event_bus)):
+    async def event_generator():
+        async for event in event_bus.subscribe():
+            yield {"event": event.event_type, "data": json.dumps(event.payload)}
+    return EventSourceResponse(event_generator())
+``` 
+
+### ⚡ Optimistic UI with React's useOptimistic Hook
+
+**Challenge**: Providing immediate user feedback while maintaining data consistency.
+
+**Solution**: Implemented React 18's `useOptimistic` hook for instant UI updates with automatic rollback on errors.
+
+**Implementation**:
+- **Vote Casting**: Immediate vote count updates with optimistic state management
+- **Like/Dislike**: Instant UI feedback with proper state synchronization
+- **Error Handling**: Automatic rollback to server state on API failures
+- **Reference**: Following [React's useOptimistic documentation](https://react.dev/reference/react/useOptimistic)
+
+```typescript
+// Optimistic vote casting with automatic rollback
+const [optimisticPoll, dispatchOptimisticPoll] = useOptimistic(poll, optimisticPollReducer);
+
+const handleVote = useCallback(async (optionId: number) => {
+  startTransition(async () => {
+    dispatchOptimisticPoll({ type: "vote", optionId }); // Immediate UI update
+    try {
+      const updatedPoll = await castVote(payload, token);
+      onUpdated?.(updatedPoll); // Sync with server state
+    } catch (err) {
+      // Automatic rollback handled by useOptimistic
+    }
+  });
+}, []);
+```
+
+### 🎨 Responsive Design with shadcn/ui
+
+**Challenge**: Creating a consistent, accessible, and responsive user interface across all devices.
+
+**Solution**: Adopted shadcn/ui component library with Tailwind CSS for modern, mobile-first design.
+
+**Implementation**:
+- **Component Library**: Pre-built accessible components with consistent styling
+- **Mobile Navigation**: Bottom navigation bar appears on mobile devices (`lg:hidden`)
+- **Desktop Sidebar**: Sticky sidebar navigation for larger screens (`hidden lg:block`)
+- **Responsive Layout**: Flexible grid system adapting to different screen sizes
+- **Dark Mode**: Built-in dark mode support with CSS variables
+
+```tsx
+// Responsive navigation implementation
+<aside className="hidden lg:block lg:w-64 lg:flex-shrink-0">
+  {/* Desktop sidebar */}
+</aside>
+
+<nav className="fixed bottom-0 left-0 right-0 z-20 lg:hidden">
+  {/* Mobile bottom navigation */}
+</nav>
+```
+
+### 🔄 Asynchronous Operations with asyncio
+
+**Challenge**: Managing concurrent database operations and real-time event processing efficiently.
+
+**Solution**: Comprehensive use of Python's asyncio for non-blocking operations throughout the application.
+
+**Implementation**:
+- **Database Operations**: All repository methods use async/await patterns
+- **Event Broadcasting**: Asynchronous event publishing and subscription
+- **Rate Limiting**: Async-compatible rate limiting with asyncio locks
+- **Password Hashing**: Non-blocking password operations using `anyio.to_thread`
+
+```python
+# Asynchronous event bus with asyncio
+class PollEventBus:
+    def __init__(self, *, max_queue_size: int = 100):
+        self._subscribers: Set[asyncio.Queue[PollEvent]] = set()
+        self._lock = asyncio.Lock()
+    
+    async def publish(self, event: PollEvent) -> None:
+        async with self._lock:
+            queues_snapshot = list(self._subscribers)
+        # Async event distribution...
+```
+
+### 🏗️ Dependency Injection for Loose Coupling
+
+**Challenge**: Maintaining clean architecture with testable, loosely coupled components.
+
+**Solution**: Implemented a custom dependency injection container with singleton pattern and FastAPI integration.
+
+**Implementation**:
+- **Centralized Container**: `DependencyContainer` manages all service and repository instances
+- **Singleton Pattern**: Services cached by class name, repositories by session ID
+- **FastAPI Integration**: Dependency providers automatically inject dependencies
+- **Testability**: `temporary_override` context manager for easy testing
+
+```python
+# Dependency injection with automatic resolution
+def get_poll_service(
+    poll_repo: IPollRepository = Depends(get_poll_repository),
+    event_bus: PollEventBus = Depends(get_poll_event_bus)
+) -> PollService:
+    container = get_container()
+    return container.get_service(PollService, poll_repository=poll_repo, event_bus=event_bus)
+```
+
+### 🗄️ PostgreSQL with asyncpg for High Performance
+
+**Challenge**: Efficient database operations with connection pooling and async support.
+
+**Solution**: Used asyncpg driver with SQLAlchemy's async engine for optimal PostgreSQL performance.
+
+**Implementation**:
+- **Async Driver**: asyncpg provides native async PostgreSQL support
+- **Connection Pooling**: NullPool for serverless environments (Railway/Neon)
+- **Statement Caching**: Disabled for serverless compatibility
+- **Migration Support**: Alembic with async URL conversion
+
+```python
+# Async PostgreSQL configuration
+engine = create_async_engine(
+    settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"),
+    poolclass=pool.NullPool,  # Serverless-optimized
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
+)
+```
+
+### 📱 Mobile-First Responsive Design
+
+**Challenge**: Ensuring optimal user experience across all device sizes.
+
+**Solution**: Mobile-first approach with progressive enhancement for larger screens.
+
+**Implementation**:
+- **Breakpoint Strategy**: `sm:`, `md:`, `lg:` prefixes for responsive behavior
+- **Navigation Adaptation**: Bottom nav on mobile, sidebar on desktop
+- **Touch-Friendly**: Larger touch targets and appropriate spacing
+- **Performance**: Optimized images and lazy loading
 
 ## 🚀 Quick Start
 
