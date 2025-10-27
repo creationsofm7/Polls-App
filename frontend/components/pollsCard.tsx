@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useOptimistic, useState, startTransition } from "react";
 import { Button } from "./ui/button";
 import { ThumbsUp, ThumbsDown, Trash2 } from "lucide-react";
 import type { Poll } from "@/lib/polls";
@@ -15,23 +15,105 @@ interface PollsCardProps {
   onUpdated?: (poll: Poll) => void;
 }
 
+type OptimisticPollAction =
+  | { type: "like"; user: AuthUser | null }
+  | { type: "dislike"; user: AuthUser | null }
+  | { type: "vote"; optionId: number }
+  | { type: "replace"; poll: Poll };
+
+const optimisticPollReducer = (current: Poll, action: OptimisticPollAction): Poll => {
+  switch (action.type) {
+    case "like": {
+      const user = action.user;
+      if (!user) return current;
+
+      const hasLiked = current.liked_by.some((u) => u.id === user.id);
+      const hasDisliked = current.disliked_by.some((u) => u.id === user.id);
+
+      const liked_by = hasLiked ? current.liked_by : [...current.liked_by, user];
+      const disliked_by = hasDisliked
+        ? current.disliked_by.filter((u) => u.id !== user.id)
+        : current.disliked_by;
+
+      return {
+        ...current,
+        likes: current.likes + (hasLiked ? 0 : 1),
+        dislikes: Math.max(0, current.dislikes - (hasDisliked ? 1 : 0)),
+        liked_by,
+        disliked_by,
+      };
+    }
+    case "dislike": {
+      const user = action.user;
+      if (!user) return current;
+
+      const hasDisliked = current.disliked_by.some((u) => u.id === user.id);
+      const hasLiked = current.liked_by.some((u) => u.id === user.id);
+
+      const disliked_by = hasDisliked ? current.disliked_by : [...current.disliked_by, user];
+      const liked_by = hasLiked
+        ? current.liked_by.filter((u) => u.id !== user.id)
+        : current.liked_by;
+
+      return {
+        ...current,
+        dislikes: current.dislikes + (hasDisliked ? 0 : 1),
+        likes: Math.max(0, current.likes - (hasLiked ? 1 : 0)),
+        liked_by,
+        disliked_by,
+      };
+    }
+    case "vote": {
+      const previousOptionId = current.my_vote_option_id ?? null;
+      if (previousOptionId === action.optionId) {
+        return current;
+      }
+
+      const updatedOptions = current.options.map((option) => {
+        if (option.id === action.optionId) {
+          return { ...option, votes: option.votes + 1 };
+        }
+        if (previousOptionId !== null && option.id === previousOptionId) {
+          return { ...option, votes: Math.max(0, option.votes - 1) };
+        }
+        return option;
+      });
+
+      return {
+        ...current,
+        options: updatedOptions,
+        my_vote_option_id: action.optionId,
+      };
+    }
+    case "replace": {
+      return action.poll;
+    }
+    default:
+      return current;
+  }
+};
+
 export default function PollsCard({ poll, onDeleted, onUpdated }: PollsCardProps) {
   const token = useAuthStore((state) => state.token);
   const currentUser = useAuthStore((state) => state.user);
   const isOwner = currentUser?.id === poll.created_by;
 
-  const initialSelectedOption = poll.my_vote_option_id ?? null;
-  const [selectedOption, setSelectedOption] = useState<number | null>(initialSelectedOption);
-  const [hasVoted, setHasVoted] = useState(initialSelectedOption !== null);
-  const [userLiked, setUserLiked] = useState(false);
-  const [userDisliked, setUserDisliked] = useState(false);
-  const [currentLikes, setCurrentLikes] = useState(poll.likes);
-  const [currentDislikes, setCurrentDislikes] = useState(poll.dislikes);
-  const [options, setOptions] = useState(poll.options);
+  const [optimisticPoll, dispatchOptimisticPoll] = useOptimistic(poll, optimisticPollReducer);
   const [error, setError] = useState<string | null>(null);
-  const [isWorking, setIsWorking] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleted, setIsDeleted] = useState(false);
+
+  const options = optimisticPoll.options;
+  const selectedOption = optimisticPoll.my_vote_option_id ?? null;
+  const hasVoted = selectedOption !== null;
+  const currentLikes = optimisticPoll.likes;
+  const currentDislikes = optimisticPoll.dislikes;
+  const userLiked = currentUser
+    ? optimisticPoll.liked_by.some((user: AuthUser) => user.id === currentUser.id)
+    : false;
+  const userDisliked = currentUser
+    ? optimisticPoll.disliked_by.some((user: AuthUser) => user.id === currentUser.id)
+    : false;
 
   const totalVotes = useMemo(
     () => options.reduce((sum, option) => sum + option.votes, 0),
@@ -39,20 +121,10 @@ export default function PollsCard({ poll, onDeleted, onUpdated }: PollsCardProps
   );
 
   useEffect(() => {
-    setOptions(poll.options);
-    setCurrentLikes(poll.likes);
-    setCurrentDislikes(poll.dislikes);
-    if (currentUser) {
-      setUserLiked(poll.liked_by.some((user: AuthUser) => user.id === currentUser.id));
-      setUserDisliked(poll.disliked_by.some((user: AuthUser) => user.id === currentUser.id));
-    } else {
-      setUserLiked(false);
-      setUserDisliked(false);
-    }
-    const voteOptionId = poll.my_vote_option_id ?? null;
-    setSelectedOption(voteOptionId);
-    setHasVoted(voteOptionId !== null);
-  }, [poll, currentUser]);
+    startTransition(() => {
+      dispatchOptimisticPoll({ type: "replace", poll });
+    });
+  }, [poll, dispatchOptimisticPoll]);
 
   // Calculate total votes
   const getPercentage = (votes: number) => {
@@ -60,95 +132,83 @@ export default function PollsCard({ poll, onDeleted, onUpdated }: PollsCardProps
     return Math.round((votes / totalVotes) * 100);
   };
 
-  const handleVote = async (optionId: number) => {
-    if (!token) {
-      setError("Please sign in to vote.");
-      return;
-    }
+  const handleVote = useCallback(
+    async (optionId: number) => {
+      if (!token) {
+        setError("Please sign in to vote.");
+        return;
+      }
 
-    try {
-      setIsWorking(true);
+      const currentSelection = optimisticPoll.my_vote_option_id ?? null;
+      if (currentSelection === optionId) {
+        return;
+      }
+
       setError(null);
-      const vote = await castVote(
-        {
-          poll_id: poll.id,
-          option_id: optionId,
-        },
-        token
-      );
+      
+      // Move dispatch INSIDE startTransition
+      startTransition(async () => {
+        // Dispatch optimistic update FIRST inside the transition
+        dispatchOptimisticPoll({ type: "vote", optionId });
+        
+        try {
+          const updatedPoll = await castVote(
+            {
+              poll_id: poll.id,
+              option_id: optionId,
+            },
+            token
+          );
+          onUpdated?.(updatedPoll);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to cast vote.");
+        }
+      });
+    },
+    [token, optimisticPoll.my_vote_option_id, dispatchOptimisticPoll, poll.id, onUpdated]
+  );
 
-      // Update selected option and vote status
-      // Vote counts will be updated via SSE poll_updated event
-      setSelectedOption(vote.option_id);
-      setHasVoted(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cast vote.");
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
-  const handleLike = async () => {
+  const handleLike = useCallback(async () => {
     if (!token) {
       setError("Please sign in to like polls.");
       return;
     }
 
-    try {
-      setIsWorking(true);
-      setError(null);
-      const updatedPoll = await likePoll(poll.id, token);
-      setCurrentLikes(updatedPoll.likes);
-      setCurrentDislikes(updatedPoll.dislikes);
-      setOptions(updatedPoll.options);
-      if (currentUser) {
-        setUserLiked(updatedPoll.liked_by.some((user: AuthUser) => user.id === currentUser.id));
-        setUserDisliked(updatedPoll.disliked_by.some((user: AuthUser) => user.id === currentUser.id));
-      } else {
-        setUserLiked(false);
-        setUserDisliked(false);
+    setError(null);
+    
+    startTransition(async () => {
+      // Dispatch INSIDE startTransition
+      dispatchOptimisticPoll({ type: "like", user: currentUser ?? null });
+      
+      try {
+        const updatedPoll = await likePoll(poll.id, token);
+        onUpdated?.(updatedPoll);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to like poll.");
       }
-      const voteOptionId = updatedPoll.my_vote_option_id ?? null;
-      setSelectedOption(voteOptionId);
-      setHasVoted(voteOptionId !== null);
-      onUpdated?.(updatedPoll);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to like poll.");
-    } finally {
-      setIsWorking(false);
-    }
-  };
+    });
+  }, [token, dispatchOptimisticPoll, poll.id, currentUser, onUpdated]);
 
-  const handleDislike = async () => {
+  const handleDislike = useCallback(async () => {
     if (!token) {
       setError("Please sign in to dislike polls.");
       return;
     }
 
-    try {
-      setIsWorking(true);
-      setError(null);
-      const updatedPoll = await dislikePoll(poll.id, token);
-      setCurrentLikes(updatedPoll.likes);
-      setCurrentDislikes(updatedPoll.dislikes);
-      setOptions(updatedPoll.options);
-      if (currentUser) {
-        setUserLiked(updatedPoll.liked_by.some((user: AuthUser) => user.id === currentUser.id));
-        setUserDisliked(updatedPoll.disliked_by.some((user: AuthUser) => user.id === currentUser.id));
-      } else {
-        setUserLiked(false);
-        setUserDisliked(false);
+    setError(null);
+    
+    startTransition(async () => {
+      // Dispatch INSIDE startTransition
+      dispatchOptimisticPoll({ type: "dislike", user: currentUser ?? null });
+      
+      try {
+        const updatedPoll = await dislikePoll(poll.id, token);
+        onUpdated?.(updatedPoll);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to dislike poll.");
       }
-      const voteOptionId = updatedPoll.my_vote_option_id ?? null;
-      setSelectedOption(voteOptionId);
-      setHasVoted(voteOptionId !== null);
-      onUpdated?.(updatedPoll);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to dislike poll.");
-    } finally {
-      setIsWorking(false);
-    }
-  };
+    });
+  }, [token, dispatchOptimisticPoll, poll.id, currentUser, onUpdated]);
 
   const handleDelete = async () => {
     if (!token) {
@@ -223,7 +283,7 @@ export default function PollsCard({ poll, onDeleted, onUpdated }: PollsCardProps
                 onClick={() => handleVote(option.id)}
                 variant="outline"
                 className="w-full h-auto py-4 px-6 text-left justify-start hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                disabled={isWorking}
+                disabled={false}
               >
                 <span className="text-base font-medium">{option.text}</span>
               </Button>
@@ -298,7 +358,7 @@ export default function PollsCard({ poll, onDeleted, onUpdated }: PollsCardProps
                 ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 dark:border-blue-400 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50' 
                 : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
             }`}
-            disabled={isWorking}
+            disabled={false}
           >
             <ThumbsUp 
               className={`h-4 w-4 ${userLiked ? 'fill-current' : ''}`} 
@@ -315,7 +375,7 @@ export default function PollsCard({ poll, onDeleted, onUpdated }: PollsCardProps
                 ? 'bg-red-100 dark:bg-red-900/30 border-red-500 dark:border-red-400 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50' 
                 : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
             }`}
-            disabled={isWorking}
+            disabled={false}
           >
             <ThumbsDown 
               className={`h-4 w-4 ${userDisliked ? 'fill-current' : ''}`} 

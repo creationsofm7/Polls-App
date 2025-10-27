@@ -102,7 +102,7 @@ export async function dislikePoll(pollId: number | string, token: string) {
 }
 
 export async function castVote(payload: VotePayload, token: string) {
-  return apiFetch<Vote>("/api/votes", {
+  return apiFetch<Poll>("/api/votes/", {
     method: "POST",
     body: payload,
     token,
