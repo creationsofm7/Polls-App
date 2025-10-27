@@ -1,8 +1,8 @@
 [build]
-builder = "nixpacks"
+builder = "railpacks/python:3.13"
 
 [deploy]
-startCommand = "py main.py"
+startCommand = "poetry run python main.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
@@ -12,7 +12,7 @@ PYTHON_VERSION = "3.13"
 POETRY_VENV_IN_PROJECT = "true"
 POETRY_CACHE_DIR = "/tmp/poetry_cache"
 
-# Environment variables that need to be set in Railway dashboard
+# The following must be set in Railway dashboard or secrets
 # DATABASE_URL - PostgreSQL connection string
 # SECRET_KEY - JWT secret key for authentication
 # ALGORITHM - JWT algorithm (default: HS256)
