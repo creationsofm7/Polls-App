@@ -4,15 +4,6 @@ A modern, full-stack polling application that enables users to create, share, an
 
 🌐 **Live Demo**: [https://polls-app-nu.vercel.app/](https://polls-app-nu.vercel.app/)
 
-## 🧪 Try It Out
-
-Test the real-time sync behavior with these demo accounts:
-
-| Email | Password | Purpose |
-|-------|----------|---------|
-| `user@test.com` | `123456` | Primary test account |
-| `comet@comet.com` | `123456` | Secondary account for testing sync |
-
 **How to test real-time features:**
 1. Open the app in two different browser tabs/windows
 2. Sign in with different accounts in each tab
