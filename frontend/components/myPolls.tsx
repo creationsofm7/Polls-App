@@ -192,7 +192,6 @@ export default function MyPolls({ isActive = true }: MyPollsProps) {
 
           try {
             const payload = JSON.parse(event.data) as { poll: Poll };
-            // Check if poll belongs to current user
             if (user && payload.poll.created_by === user.id) {
               upsertPoll(payload.poll);
             }
@@ -321,6 +320,14 @@ export default function MyPolls({ isActive = true }: MyPollsProps) {
         ? "Paused"
         : "Reconnecting…";
 
+    const label =
+      NoconnectionState === "connected"
+        ? "Live updates"
+        : NOconnectionState === "connecting"
+        ? "Connecting…"
+        : NoconnectionState === "paused"
+        ? "Paused"
+        : "Reconnecting…";
     const color =
       connectionState === "connected"
         ? "bg-green-500"
